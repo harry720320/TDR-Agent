@@ -1,0 +1,1540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TDR Agent - Natural Language API Query</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .query-input:focus {
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        .api-endpoint {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        }
+        .response-section {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Error Boundary Component
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+
+            static getDerivedStateFromError(error) {
+                return { hasError: true, error: error };
+            }
+
+            componentDidCatch(error, errorInfo) {
+                console.error('Error caught by boundary:', error, errorInfo);
+            }
+
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="min-h-screen flex items-center justify-center bg-red-500 text-white">
+                            <div className="text-center p-8">
+                                <h1 className="text-2xl mb-4">Something went wrong</h1>
+                                <p className="mb-4">Error: {this.state.error?.message}</p>
+                                <button 
+                                    onClick={() => window.location.reload()} 
+                                    className="bg-white text-red-500 px-4 py-2 rounded hover:bg-gray-100"
+                                >
+                                    Reload Page
+                                </button>
+                            </div>
+                        </div>
+                    );
+                }
+
+                return this.props.children;
+            }
+        }
+
+        function App() {
+            console.log('App component initializing...');
+            
+            const [query, setQuery] = useState('');
+            const [result, setResult] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState('');
+            const [suggestions, setSuggestions] = useState([]);
+            const [endpoints, setEndpoints] = useState([]);
+            const [config, setConfig] = useState({ 
+                hostname: '', 
+                api_token: '', 
+                openai_api_key: '', 
+                openai_model: 'gpt-5-mini' 
+            });
+            const [showConfig, setShowConfig] = useState(false);
+            const [configLoading, setConfigLoading] = useState(false);
+            const [apiResponse, setApiResponse] = useState(null);
+            const [aiExplanation, setAiExplanation] = useState(null);
+
+            useEffect(() => {
+                console.log('App useEffect triggered');
+                try {
+                    fetchSuggestions();
+                    fetchEndpoints();
+                    fetchConfig();
+                } catch (error) {
+                    console.error('Error in useEffect:', error);
+                }
+            }, []);
+
+            const fetchSuggestions = async () => {
+                try {
+                    const response = await axios.get('/api/suggestions');
+                    setSuggestions(response.data.suggestions);
+                } catch (err) {
+                    console.error('Error fetching suggestions:', err);
+                }
+            };
+
+            const fetchEndpoints = async () => {
+                try {
+                    const response = await axios.get('/api/endpoints');
+                    setEndpoints(response.data);
+                } catch (err) {
+                    console.error('Error fetching endpoints:', err);
+                }
+            };
+
+            const fetchConfig = async () => {
+                try {
+                    const response = await axios.get('/api/config');
+                    setConfig(response.data);
+                } catch (err) {
+                    console.error('Error fetching config:', err);
+                }
+            };
+
+            const updateConfig = async (e) => {
+                e.preventDefault();
+                setConfigLoading(true);
+                
+                try {
+                    const response = await axios.post('/api/config', config);
+                    const message = response.data.message;
+                    const savedToFile = response.data.saved_to_file;
+                    
+                    if (savedToFile) {
+                        alert('Configuration updated and saved permanently!');
+                    } else {
+                        alert('Configuration updated but failed to save to file. Changes will be lost on restart.');
+                    }
+                    setShowConfig(false);
+                } catch (err) {
+                    alert(err.response?.data?.error || 'Error updating configuration');
+                } finally {
+                    setConfigLoading(false);
+                }
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!query.trim()) return;
+
+                setLoading(true);
+                setError('');
+                setResult(null);
+
+                try {
+                    const response = await axios.post('/api/query', {
+                        query: query.trim()
+                    });
+                    setResult(response.data);
+                } catch (err) {
+                    setError(err.response?.data?.error || 'An error occurred while processing your query');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleSuggestionClick = (suggestion) => {
+                setQuery(suggestion);
+                // Auto-submit suggestion
+                setTimeout(() => {
+                    document.getElementById('query-form').dispatchEvent(new Event('submit'));
+                }, 100);
+            };
+
+            const formatApiRequest = (apiRequest) => {
+                const baseUrl = apiRequest.base_url || window.location.origin;
+                const url = new URL(apiRequest.url, baseUrl);
+                Object.entries(apiRequest.query_params || {}).forEach(([key, value]) => {
+                    if (value !== null && value !== undefined) {
+                        url.searchParams.append(key, value);
+                    }
+                });
+                return {
+                    ...apiRequest,
+                    fullUrl: url.toString()
+                };
+            };
+
+            const copyToClipboard = (text) => {
+                navigator.clipboard.writeText(text);
+                // You could add a toast notification here
+            };
+
+            const processResponseWithAI = async (responseData, apiRequest, detectedLanguage = 'en') => {
+                try {
+                    console.log('🤖 Processing response with AI...');
+                    console.log('Response Data:', responseData);
+                    console.log('API Request:', apiRequest);
+                    console.log('Detected Language:', detectedLanguage);
+                    
+                    // Generate prompt based on detected language
+                    let prompt;
+                    const languagePrompts = {
+                        'zh': {
+                            intro: `你是一名网络安全分析师，正在解释威胁检测和响应(TDR)数据。
+
+API请求: ${apiRequest.method} ${apiRequest.url}
+查询参数: ${JSON.stringify(apiRequest.query_params || {})}
+
+API响应数据:
+${JSON.stringify(responseData, null, 2)}
+
+请提供清晰、自然语言的安全威胁数据解释。重点关注：`,
+                            sections: `1. **摘要**: 这些数据告诉我们什么安全威胁信息？
+2. **关键发现**: 最重要的安全洞察是什么？
+3. **风险评估**: 这些威胁的严重程度如何？
+4. **建议**: 应该采取什么行动？`,
+                            format: `请以专业安全报告的形式回答。具体说明数字、日期和风险级别。使用清晰、非技术性语言，让安全管理人员能够理解。`,
+                            userData: `如果响应包含用户威胁数据，请解释：
+- 哪些用户面临最大风险
+- 什么行为触发了警报
+- 风险评分的含义`,
+                            deviceData: `如果响应包含设备威胁数据，请解释：
+- 哪些设备被入侵或可疑
+- 检测到什么活动
+- 网络安全影响`,
+                            processData: `如果响应包含进程数据，请解释：
+- 执行了什么异常进程
+- 为什么它们被认为是可疑的
+- 潜在的攻击向量`,
+                            conclusion: `保持解释简洁但全面。`
+                        },
+                        'zh-tw': {
+                            intro: `您是一名網路安全分析師，正在解釋威脅偵測和回應(TDR)資料。
+
+API請求: ${apiRequest.method} ${apiRequest.url}
+查詢參數: ${JSON.stringify(apiRequest.query_params || {})}
+
+API回應資料:
+${JSON.stringify(responseData, null, 2)}
+
+請提供清晰、自然語言的安全威脅資料解釋。重點關注：`,
+                            sections: `1. **摘要**: 這些資料告訴我們什麼安全威脅資訊？
+2. **關鍵發現**: 最重要的安全洞察是什麼？
+3. **風險評估**: 這些威脅的嚴重程度如何？
+4. **建議**: 應該採取什麼行動？`,
+                            format: `請以專業安全報告的形式回答。具體說明數字、日期和風險級別。使用清晰、非技術性語言，讓安全管理人員能夠理解。`,
+                            userData: `如果回應包含使用者威脅資料，請解釋：
+- 哪些使用者面臨最大風險
+- 什麼行為觸發了警報
+- 風險評分的含義`,
+                            deviceData: `如果回應包含裝置威脅資料，請解釋：
+- 哪些裝置被入侵或可疑
+- 偵測到什麼活動
+- 網路安全影響`,
+                            processData: `如果回應包含程序資料，請解釋：
+- 執行了什麼異常程序
+- 為什麼它們被認為是可疑的
+- 潛在的攻擊向量`,
+                            conclusion: `保持解釋簡潔但全面。`
+                        },
+                        'ja': {
+                            intro: `あなたは脅威検出および対応（TDR）データを説明する専門のサイバーセキュリティアナリストです。
+
+APIリクエスト: ${apiRequest.method} ${apiRequest.url}
+クエリパラメータ: ${JSON.stringify(apiRequest.query_params || {})}
+
+APIレスポンスデータ:
+${JSON.stringify(responseData, null, 2)}
+
+この脅威検出データの明確で自然な言語での説明を提供してください。以下の点に焦点を当ててください：`,
+                            sections: `1. **要約**: このデータはどのようなセキュリティ脅威について教えてくれますか？
+2. **主要な発見**: 最も重要なセキュリティ洞察は何ですか？
+3. **リスク評価**: これらの脅威の深刻度はどの程度ですか？
+4. **推奨事項**: どのような行動を取るべきですか？`,
+                            format: `専門的なセキュリティレポートの形式で回答してください。数字、日付、リスクレベルを具体的に説明し、セキュリティ管理者が理解できるよう、明確で非技術的な言語を使用してください。`,
+                            userData: `レスポンスにユーザー脅威データが含まれている場合、以下を説明してください：
+- どのユーザーが最もリスクにさらされているか
+- どの行動がアラートを引き起こしたか
+- リスクスコアの意味`,
+                            deviceData: `レスポンスにデバイス脅威データが含まれている場合、以下を説明してください：
+- どのデバイスが侵害されているか、または疑わしいか
+- どのような活動が検出されたか
+- ネットワークセキュリティへの影響`,
+                            processData: `レスポンスにプロセスデータが含まれている場合、以下を説明してください：
+- どのような異常なプロセスが実行されたか
+- なぜそれらが疑わしいと考えられるか
+- 潜在的な攻撃ベクトル`,
+                            conclusion: `説明は簡潔でありながら包括的であることを心がけてください。`
+                        },
+                        'ko': {
+                            intro: `당신은 위협 탐지 및 대응(TDR) 데이터를 설명하는 전문 사이버보안 분석가입니다.
+
+API 요청: ${apiRequest.method} ${apiRequest.url}
+쿼리 매개변수: ${JSON.stringify(apiRequest.query_params || {})}
+
+API 응답 데이터:
+${JSON.stringify(responseData, null, 2)}
+
+이 위협 탐지 데이터에 대한 명확하고 자연스러운 언어 설명을 제공해 주세요. 다음에 중점을 두세요:`,
+                            sections: `1. **요약**: 이 데이터는 어떤 보안 위협에 대해 알려주나요?
+2. **주요 발견**: 가장 중요한 보안 인사이트는 무엇인가요?
+3. **위험 평가**: 이러한 위협의 심각도는 어느 정도인가요?
+4. **권장사항**: 어떤 조치를 취해야 하나요?`,
+                            format: `전문적인 보안 보고서 형식으로 답변해 주세요. 숫자, 날짜, 위험 수준을 구체적으로 설명하고, 보안 관리자가 이해할 수 있도록 명확하고 비기술적인 언어를 사용해 주세요.`,
+                            userData: `응답에 사용자 위협 데이터가 포함된 경우 다음을 설명해 주세요:
+- 어떤 사용자가 가장 위험에 노출되어 있는지
+- 어떤 행동이 경고를 트리거했는지
+- 위험 점수의 의미`,
+                            deviceData: `응답에 디바이스 위협 데이터가 포함된 경우 다음을 설명해 주세요:
+- 어떤 디바이스가 손상되었거나 의심스러운지
+- 어떤 활동이 탐지되었는지
+- 네트워크 보안에 미치는 영향`,
+                            processData: `응답에 프로세스 데이터가 포함된 경우 다음을 설명해 주세요:
+- 어떤 비정상적인 프로세스가 실행되었는지
+- 왜 그것들이 의심스럽다고 여겨지는지
+- 잠재적인 공격 벡터`,
+                            conclusion: `설명은 간결하면서도 포괄적으로 작성해 주세요.`
+                        }
+                    };
+                    
+                    const langData = languagePrompts[detectedLanguage];
+                    if (langData) {
+                        prompt = `${langData.intro}
+
+${langData.sections}
+
+${langData.format}
+
+${langData.userData}
+
+${langData.deviceData}
+
+${langData.processData}
+
+${langData.conclusion}`;
+                    } else {
+                        // Default English prompt
+                        prompt = `You are a cybersecurity analyst explaining threat detection and response (TDR) data. 
+                        
+API Request: ${apiRequest.method} ${apiRequest.url}
+Query Parameters: ${JSON.stringify(apiRequest.query_params || {})}
+
+API Response Data:
+${JSON.stringify(responseData, null, 2)}
+
+Please provide a clear, natural language explanation of this threat detection data. Focus on:
+
+1. **Summary**: What does this data tell us about security threats?
+2. **Key Findings**: What are the most important security insights?
+3. **Risk Assessment**: How serious are these threats?
+4. **Recommendations**: What actions should be taken?
+
+Format your response as a professional security report. Be specific about numbers, dates, and risk levels. Use clear, non-technical language that a security manager could understand.
+
+If the response contains user threat data, explain:
+- Which users are most at risk
+- What behaviors triggered the alerts
+- Risk scores and their meaning
+
+If the response contains device threat data, explain:
+- Which devices are compromised or suspicious
+- What activities were detected
+- Network security implications
+
+If the response contains process data, explain:
+- What unusual processes were executed
+- Why they're considered suspicious
+- Potential attack vectors
+
+Keep the explanation concise but comprehensive.`;
+                    }
+
+                    console.log('📤 Sending request to /api/ai-explain...');
+                    const response = await fetch('/api/ai-explain', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            prompt: prompt,
+                            responseData: responseData,
+                            apiRequest: apiRequest,
+                            detected_language: detectedLanguage
+                        })
+                    });
+
+                    console.log('📥 Received response from AI endpoint:', response.status, response.statusText);
+                    
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('❌ AI endpoint error:', response.status, errorText);
+                        throw new Error(`AI processing failed: ${response.status} - ${errorText}`);
+                    }
+
+                    const result = await response.json();
+                    console.log('📋 AI endpoint result:', result);
+                    
+                    return result.explanation || result.error || 'AI explanation not available';
+                    
+                } catch (error) {
+                    console.error('❌ AI processing error:', error);
+                    console.error('Error name:', error.name);
+                    console.error('Error message:', error.message);
+                    console.error('Error stack:', error.stack);
+                    throw error;
+                }
+            };
+
+            const sendApiRequest = async (apiRequest) => {
+                try {
+                    console.log('=== API REQUEST DEBUG ===');
+                    console.log('Original API request object:', apiRequest);
+                    
+                    // Check if we should use proxy (for CORS issues)
+                    const useProxy = true; // Always use proxy to avoid CORS issues
+                    
+                    if (useProxy) {
+                        console.log('Using proxy to avoid CORS issues...');
+                        
+                        // Build proxy URL
+                        const proxyUrl = `/api/proxy${apiRequest.url}`;
+                        const url = new URL(proxyUrl, window.location.origin);
+                        
+                        // Add query parameters
+                        console.log('Query parameters:', apiRequest.query_params);
+                        Object.entries(apiRequest.query_params || {}).forEach(([key, value]) => {
+                            if (value !== null && value !== undefined) {
+                                url.searchParams.append(key, value);
+                                console.log(`Added query param: ${key} = ${value}`);
+                            }
+                        });
+                        
+                        const requestOptions = {
+                            method: apiRequest.method,
+                            headers: {
+                                'Accept': 'application/json'
+                            }
+                        };
+                        
+                        console.log('Proxy URL:', url.toString());
+                        console.log('Request options:', requestOptions);
+                        
+                        // Show loading indicator
+                        const loadingModal = showLoadingModal();
+                        
+                        const response = await fetch(url.toString(), requestOptions);
+                        const responseData = await response.text();
+                        
+                        // Remove loading indicator
+                        loadingModal.remove();
+                        
+                        let parsedData;
+                        try {
+                            parsedData = JSON.parse(responseData);
+                        } catch {
+                            parsedData = responseData;
+                        }
+                        
+                        // Process response with AI if successful
+                        console.log('🔍 Checking response status...');
+                        console.log('Response OK:', response.ok);
+                        console.log('Response Status:', response.status);
+                        console.log('Parsed Data:', parsedData);
+                        
+                        if (response.ok && parsedData) {
+                            console.log('✅ API Request Successful');
+                            console.log('Response Status:', response.status, response.statusText);
+                            console.log('Response Headers:', Object.fromEntries(response.headers.entries()));
+                            console.log('Response Data:', parsedData);
+                            
+                            // Update API response state
+                            setApiResponse({
+                                status: response.status,
+                                statusText: response.statusText,
+                                headers: Object.fromEntries(response.headers.entries()),
+                                data: parsedData,
+                                url: url.toString(),
+                                method: 'proxy'
+                            });
+                            
+                            console.log('🤖 Starting AI processing...');
+                            console.log('⏰ Waiting for async operations to complete...');
+                            // Give async operations time to complete
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                            console.log('✅ Async wait complete, starting AI processing...');
+                            try {
+                                console.log('📤 Calling processResponseWithAI...');
+                                // Get detected language from the result (if available)
+                                const detectedLanguage = result?.detected_language || 'en';
+                                console.log('🌍 Detected language for AI explanation:', detectedLanguage);
+                                console.log('📋 Full result object:', result);
+                                const aiExplanation = await processResponseWithAI(parsedData, apiRequest, detectedLanguage);
+                                console.log('✅ AI Processing Successful');
+                                console.log('AI Explanation received:', aiExplanation);
+                                console.log('AI Explanation type:', typeof aiExplanation);
+                                console.log('AI Explanation length:', aiExplanation ? aiExplanation.length : 'null');
+                                
+                                setAiExplanation(aiExplanation);
+                                console.log('✅ AI explanation state updated');
+                                
+                                // Show AI explanation in popup
+                                console.log('🎭 Showing AI explanation modal...');
+                                const modalData = {
+                                    status: response.status,
+                                    statusText: response.statusText,
+                                    data: parsedData,
+                                    aiExplanation: aiExplanation,
+                                    url: url.toString(),
+                                    method: 'proxy'
+                                };
+                                console.log('Modal data:', modalData);
+                                showAiExplanationModal(modalData);
+                                console.log('✅ AI explanation modal called');
+                            } catch (aiError) {
+                                console.error('❌ AI Processing Failed:', aiError);
+                                console.error('AI Error Details:', aiError.message);
+                                console.error('AI Error Stack:', aiError.stack);
+                                setAiExplanation(null);
+                                
+                                // Show error popup
+                                console.log('🎭 Showing AI error modal...');
+                                const errorModalData = {
+                                    status: response.status,
+                                    statusText: response.statusText,
+                                    data: parsedData,
+                                    url: url.toString(),
+                                    method: 'proxy',
+                                    aiError: aiError.message
+                                };
+                                console.log('Error modal data:', errorModalData);
+                                showAiExplanationModal(errorModalData);
+                                console.log('✅ AI error modal called');
+                            }
+                        } else {
+                            console.log('❌ API Request Failed');
+                            console.log('Response Status:', response.status, response.statusText);
+                            console.log('Response Data:', parsedData);
+                            
+                            // Update API response state with error
+                            setApiResponse({
+                                status: response.status,
+                                statusText: response.statusText,
+                                headers: Object.fromEntries(response.headers.entries()),
+                                data: parsedData,
+                                url: url.toString(),
+                                method: 'proxy',
+                                error: true
+                            });
+                            setAiExplanation(null);
+                        }
+                        
+                    } else {
+                        // Original direct request code (kept for reference)
+                        const baseUrl = apiRequest.base_url || window.location.origin;
+                        console.log('Base URL:', baseUrl);
+                        console.log('API path:', apiRequest.url);
+                        
+                        const url = new URL(apiRequest.url, baseUrl);
+                        console.log('Initial URL:', url.toString());
+                        
+                        // Add query parameters
+                        console.log('Query parameters:', apiRequest.query_params);
+                        Object.entries(apiRequest.query_params || {}).forEach(([key, value]) => {
+                            if (value !== null && value !== undefined) {
+                                url.searchParams.append(key, value);
+                                console.log(`Added query param: ${key} = ${value}`);
+                            }
+                        });
+                        
+                        const requestOptions = {
+                            method: apiRequest.method,
+                            headers: apiRequest.headers || {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json'
+                            },
+                            mode: 'cors', // Enable CORS
+                            credentials: 'omit' // Don't send cookies
+                        };
+                        
+                        // For CORS issues, try different approaches
+                        if (apiRequest.method === 'GET') {
+                            // For GET requests, try no-cors mode as fallback
+                            console.log('Trying CORS mode first...');
+                        } else {
+                            // For non-GET requests, we need CORS to work
+                            console.log('Non-GET request requires CORS support');
+                        }
+                        
+                        // Add body for POST/PUT requests
+                        if (['POST', 'PUT', 'PATCH'].includes(apiRequest.method)) {
+                            requestOptions.body = JSON.stringify(apiRequest.body || {});
+                            console.log('Request body:', requestOptions.body);
+                        }
+                        
+                        console.log('Final constructed URL:', url.toString());
+                        console.log('Final request options:', requestOptions);
+                        console.log('Headers being sent:', requestOptions.headers);
+                        console.log('=== END API REQUEST DEBUG ===');
+                        
+                        // Show loading indicator
+                        const loadingModal = showLoadingModal();
+                        
+                        const response = await fetch(url.toString(), requestOptions);
+                        const responseData = await response.text();
+                        
+                        // Remove loading indicator
+                        loadingModal.remove();
+                        
+                        let parsedData;
+                        try {
+                            parsedData = JSON.parse(responseData);
+                        } catch {
+                            parsedData = responseData;
+                        }
+                        
+                        // Show response in a modal
+                        showApiResponse({
+                            status: response.status,
+                            statusText: response.statusText,
+                            headers: Object.fromEntries(response.headers.entries()),
+                            data: parsedData,
+                            url: url.toString(),
+                            method: 'direct'
+                        });
+                    }
+                    
+                } catch (error) {
+                    console.error('API request failed:', error);
+                    
+                    // Show detailed error information
+                    showApiError({
+                        error: error.message,
+                        type: error.name,
+                        url: apiRequest.base_url + apiRequest.url,
+                        suggestions: getErrorSuggestions(error)
+                    });
+                }
+            };
+
+            const showLoadingModal = () => {
+                const modal = document.createElement('div');
+                modal.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4';
+                modal.innerHTML = `
+                    <div class="glass-effect rounded-2xl p-6 text-center">
+                        <div class="spinner mx-auto mb-4"></div>
+                        <h3 class="text-xl font-semibold text-white mb-2">Sending API Request</h3>
+                        <p class="text-blue-200">Please wait...</p>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                return modal;
+            };
+
+            const getErrorSuggestions = (error) => {
+                const suggestions = [];
+                
+                if (error.message.includes('Failed to fetch')) {
+                    suggestions.push('Check if the API server is running and accessible');
+                    suggestions.push('Verify the hostname and port in your configuration');
+                    suggestions.push('Check if there are any firewall or network restrictions');
+                    suggestions.push('Try accessing the API URL directly in your browser');
+                }
+                
+                if (error.message.includes('CORS')) {
+                    suggestions.push('The API server may not allow cross-origin requests');
+                    suggestions.push('Contact your API administrator about CORS configuration');
+                }
+                
+                if (error.message.includes('SSL') || error.message.includes('certificate')) {
+                    suggestions.push('There may be an SSL certificate issue');
+                    suggestions.push('Try using HTTP instead of HTTPS if in a development environment');
+                }
+                
+                return suggestions;
+            };
+
+            const showApiError = (errorInfo) => {
+                const modal = document.createElement('div');
+                modal.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2';
+                modal.innerHTML = `
+                    <div class="glass-effect rounded-2xl p-4 w-full max-w-2xl h-[80vh] flex flex-col">
+                        <div class="flex justify-between items-center mb-3 flex-shrink-0">
+                            <h3 class="text-lg font-semibold text-white">
+                                <i class="fas fa-exclamation-triangle mr-2 text-red-400"></i>
+                                API Request Failed
+                            </h3>
+                            <button onclick="this.closest('.fixed').remove()" class="text-white hover:text-red-300 transition-colors text-xl p-1">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="flex-1 overflow-y-auto space-y-3 pr-2">
+                            <div class="bg-red-500/20 rounded-lg p-3 border border-red-500/30">
+                                <h4 class="text-white font-medium mb-2">Error Details</h4>
+                                <p class="text-red-200 mb-2 text-sm"><strong>Type:</strong> ${errorInfo.type}</p>
+                                <p class="text-red-200 mb-2 text-sm"><strong>Message:</strong> ${errorInfo.error}</p>
+                                <p class="text-red-200 text-sm"><strong>URL:</strong> <code class="text-red-300 text-xs break-all">${errorInfo.url}</code></p>
+                            </div>
+                            
+                            <div class="bg-blue-500/20 rounded-lg p-3 border border-blue-500/30">
+                                <h4 class="text-white font-medium mb-2">Troubleshooting Suggestions</h4>
+                                <ul class="text-blue-200 space-y-1 text-sm">
+                                    ${errorInfo.suggestions.map(suggestion => `<li>• ${suggestion}</li>`).join('')}
+                                </ul>
+                            </div>
+                            
+                            <div class="bg-yellow-500/20 rounded-lg p-3 border border-yellow-500/30">
+                                <h4 class="text-white font-medium mb-2">Quick Tests</h4>
+                                <div class="space-y-2">
+                                    <button onclick="testApiConnectivity('${errorInfo.url}')" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
+                                        Test API Connectivity
+                                    </button>
+                                    <button onclick="openApiUrl('${errorInfo.url}')" class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors ml-2">
+                                        Open in Browser
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                
+                // Add keyboard support for closing
+                const handleKeyDown = (e) => {
+                    if (e.key === 'Escape') {
+                        modal.remove();
+                        document.removeEventListener('keydown', handleKeyDown);
+                    }
+                };
+                document.addEventListener('keydown', handleKeyDown);
+                
+                // Focus the close button for accessibility
+                setTimeout(() => {
+                    const closeBtn = modal.querySelector('button');
+                    if (closeBtn) closeBtn.focus();
+                }, 100);
+            };
+
+            // Helper functions for error modal
+            window.testApiConnectivity = async (url) => {
+                try {
+                    const response = await fetch(url, { method: 'HEAD' });
+                    alert(`API is reachable! Status: ${response.status}`);
+                } catch (error) {
+                    alert(`API connectivity test failed: ${error.message}`);
+                }
+            };
+
+            window.openApiUrl = (url) => {
+                window.open(url, '_blank');
+            };
+
+            const showAiExplanationModal = (response) => {
+                console.log('🎭 showAiExplanationModal called with:', response);
+                console.log('Response keys:', Object.keys(response));
+                console.log('Has AI explanation:', response.aiExplanation);
+                console.log('Has AI error:', response.aiError);
+                
+                const modal = document.createElement('div');
+                modal.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2';
+                
+                // Determine if we have AI explanation
+                const hasAIExplanation = response.aiExplanation && !response.aiError;
+                const hasAIError = response.aiError;
+                
+                console.log('Modal conditions - hasAIExplanation:', hasAIExplanation, 'hasAIError:', hasAIError);
+                
+                 modal.innerHTML = `
+                     <div class="glass-effect rounded-2xl p-4 w-full max-w-4xl h-[85vh] flex flex-col">
+                         <div class="flex justify-between items-center mb-3 flex-shrink-0">
+                             <h3 class="text-lg font-semibold text-white">
+                                 <i class="fas fa-robot mr-2"></i>
+                                 AI Security Analysis
+                                 ${hasAIExplanation ? '<span class="ml-2 text-green-300 text-sm">✅ Success</span>' : ''}
+                                 ${hasAIError ? '<span class="ml-2 text-yellow-300 text-sm">⚠️ Failed</span>' : ''}
+                             </h3>
+                             <button onclick="this.closest('.fixed').remove()" class="text-white hover:text-red-300 transition-colors text-xl p-1">
+                                 <i class="fas fa-times"></i>
+                             </button>
+                         </div>
+                         
+                         <div class="flex-1 overflow-y-auto space-y-3 pr-2" style="max-height: calc(85vh - 120px);">
+                             ${hasAIExplanation ? `
+                                 <div class="bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-lg p-3 border border-blue-400/30">
+                                     <h4 class="text-white font-medium mb-2 flex items-center">
+                                         <i class="fas fa-shield-alt mr-2 text-blue-300"></i>
+                                         Security Analysis Report
+                                     </h4>
+                                     <div class="text-white text-sm leading-relaxed whitespace-pre-wrap max-h-96 overflow-y-auto bg-black/20 p-3 rounded border">${response.aiExplanation}</div>
+                                 </div>
+                             ` : ''}
+                             
+                             ${hasAIError ? `
+                                 <div class="bg-yellow-500/20 rounded-lg p-3 border border-yellow-400/30">
+                                     <h4 class="text-yellow-200 font-medium mb-2">⚠️ AI Processing Failed</h4>
+                                     <p class="text-yellow-100 text-sm">${response.aiError}</p>
+                                     <p class="text-yellow-200 text-xs mt-2">The API request was successful, but AI analysis failed. Check the console for details.</p>
+                                 </div>
+                             ` : ''}
+                             
+                             <div class="bg-white/10 rounded-lg p-3">
+                                 <h4 class="text-white font-medium mb-2">Request Information</h4>
+                                 <p class="text-blue-200 text-sm"><strong>URL:</strong> <code class="text-green-300 text-xs break-all">${response.url}</code></p>
+                                 <p class="text-blue-200 text-sm"><strong>Status:</strong> <span class="px-2 py-1 rounded text-xs ${response.status < 400 ? 'bg-green-600' : 'bg-red-600'} text-white">${response.status} ${response.statusText}</span></p>
+                                 ${response.method === 'proxy' ? '<p class="text-blue-200 text-xs mt-1">✅ Request sent via proxy (CORS bypassed)</p>' : ''}
+                             </div>
+                         </div>
+                     </div>
+                 `;
+                
+                console.log('🎭 Modal HTML created, appending to document...');
+                document.body.appendChild(modal);
+                console.log('✅ Modal appended to document body');
+                
+                // Add keyboard support for closing
+                const handleKeyDown = (e) => {
+                    if (e.key === 'Escape') {
+                        console.log('🎭 Modal closed via ESC key');
+                        modal.remove();
+                        document.removeEventListener('keydown', handleKeyDown);
+                    }
+                };
+                document.addEventListener('keydown', handleKeyDown);
+                
+                // Focus the close button for accessibility
+                setTimeout(() => {
+                    const closeBtn = modal.querySelector('button');
+                    if (closeBtn) {
+                        closeBtn.focus();
+                        console.log('✅ Modal close button focused');
+                    }
+                }, 100);
+                
+                console.log('🎭 Modal setup complete');
+            };
+
+            const showApiResponse = (response) => {
+                const modal = document.createElement('div');
+                modal.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2';
+                
+                // Determine if we have AI explanation
+                const hasAIExplanation = response.aiExplanation && !response.aiError;
+                const hasAIError = response.aiError;
+                
+                 modal.innerHTML = `
+                     <div class="glass-effect rounded-2xl p-4 w-full max-w-5xl h-[85vh] flex flex-col">
+                         <div class="flex justify-between items-center mb-3 flex-shrink-0">
+                             <h3 class="text-lg font-semibold text-white">
+                                 <i class="fas fa-server mr-2"></i>
+                                 API Response
+                                 ${hasAIExplanation ? '<span class="ml-2 text-green-300 text-sm">🤖 AI Analyzed</span>' : ''}
+                                 ${hasAIError ? '<span class="ml-2 text-yellow-300 text-sm">⚠️ AI Failed</span>' : ''}
+                             </h3>
+                             <button onclick="this.closest('.fixed').remove()" class="text-white hover:text-red-300 transition-colors text-xl p-1">
+                                 <i class="fas fa-times"></i>
+                             </button>
+                         </div>
+                         
+                         <div class="flex-1 overflow-y-auto space-y-3 pr-2" style="max-height: calc(85vh - 120px);">
+                             ${hasAIExplanation ? `
+                                 <div class="bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-lg p-3 border border-blue-400/30">
+                                     <h4 class="text-white font-medium mb-2 flex items-center">
+                                         <i class="fas fa-robot mr-2 text-blue-300"></i>
+                                         AI Security Analysis
+                                     </h4>
+                                     <div class="text-white text-sm leading-relaxed whitespace-pre-wrap max-h-96 overflow-y-auto bg-black/20 p-3 rounded border">${response.aiExplanation}</div>
+                                 </div>
+                             ` : ''}
+                             
+                             ${hasAIError ? `
+                                 <div class="bg-yellow-500/20 rounded-lg p-3 border border-yellow-400/30">
+                                     <h4 class="text-yellow-200 font-medium mb-2">⚠️ AI Processing Failed</h4>
+                                     <p class="text-yellow-100 text-sm">${response.aiError}</p>
+                                     <p class="text-yellow-200 text-xs mt-2">Showing raw response below...</p>
+                                 </div>
+                             ` : ''}
+                             
+                             <div class="bg-white/10 rounded-lg p-3">
+                                 <h4 class="text-white font-medium mb-2">Request URL</h4>
+                                 <code class="text-green-300 text-xs break-all">${response.url}</code>
+                                 ${response.method === 'proxy' ? '<p class="text-blue-200 text-xs mt-1">✅ Request sent via proxy (CORS bypassed)</p>' : ''}
+                             </div>
+                             
+                             <div class="bg-white/10 rounded-lg p-3">
+                                 <h4 class="text-white font-medium mb-2">Response Status</h4>
+                                 <span class="px-2 py-1 rounded text-sm ${response.status < 400 ? 'bg-green-600' : 'bg-red-600'} text-white">
+                                     ${response.status} ${response.statusText}
+                                 </span>
+                             </div>
+                             
+                             ${!hasAIExplanation ? `
+                                 <div class="bg-white/10 rounded-lg p-3">
+                                     <h4 class="text-white font-medium mb-2">Response Headers</h4>
+                                     <pre class="text-blue-300 text-xs bg-black/30 p-2 rounded overflow-x-auto max-h-32">${JSON.stringify(response.headers, null, 2)}</pre>
+                                 </div>
+                                 
+                                 <div class="bg-white/10 rounded-lg p-3">
+                                     <h4 class="text-white font-medium mb-2">Raw Response Data</h4>
+                                     <pre class="text-green-300 text-xs bg-black/30 p-2 rounded overflow-x-auto max-h-64">${JSON.stringify(response.data, null, 2)}</pre>
+                                 </div>
+                             ` : `
+                                 <details class="bg-white/5 rounded-lg p-3">
+                                     <summary class="text-white font-medium cursor-pointer hover:text-blue-300 transition-colors text-sm">
+                                         <i class="fas fa-code mr-2"></i>
+                                         View Raw Response Data
+                                     </summary>
+                                     <div class="mt-3 space-y-3">
+                                         <div>
+                                             <h5 class="text-white font-medium mb-2 text-sm">Response Headers</h5>
+                                             <pre class="text-blue-300 text-xs bg-black/30 p-2 rounded overflow-x-auto max-h-32">${JSON.stringify(response.headers, null, 2)}</pre>
+                                         </div>
+                                         <div>
+                                             <h5 class="text-white font-medium mb-2 text-sm">Response Data</h5>
+                                             <pre class="text-green-300 text-xs bg-black/30 p-2 rounded overflow-x-auto max-h-64">${JSON.stringify(response.data, null, 2)}</pre>
+                                         </div>
+                                     </div>
+                                 </details>
+                             `}
+                         </div>
+                     </div>
+                 `;
+                document.body.appendChild(modal);
+                
+                // Add keyboard support for closing
+                const handleKeyDown = (e) => {
+                    if (e.key === 'Escape') {
+                        modal.remove();
+                        document.removeEventListener('keydown', handleKeyDown);
+                    }
+                };
+                document.addEventListener('keydown', handleKeyDown);
+                
+                // Focus the close button for accessibility
+                setTimeout(() => {
+                    const closeBtn = modal.querySelector('button');
+                    if (closeBtn) closeBtn.focus();
+                }, 100);
+            };
+
+            console.log('App component rendering...');
+            
+            return (
+                <div className="min-h-screen py-8 px-4">
+                    <div className="max-w-6xl mx-auto">
+                        {/* Header */}
+                        <div className="text-center mb-8">
+                            <div className="flex justify-between items-center mb-4">
+                                <div></div>
+                                <h1 className="text-4xl font-bold text-white">
+                                    <i className="fas fa-shield-alt mr-3"></i>
+                                    TDR Agent
+                                </h1>
+                                <button
+                                    onClick={() => setShowConfig(!showConfig)}
+                                    className="text-white hover:text-blue-200 transition-colors"
+                                    title="Configure API settings"
+                                >
+                                    <i className="fas fa-cog text-xl"></i>
+                                </button>
+                            </div>
+                            <p className="text-xl text-blue-100">
+                                Natural Language API Query Interface
+                            </p>
+                            <p className="text-sm text-blue-200 mt-2">
+                                Ask questions about threats, users, devices, and security risks in natural language
+                            </p>
+                        </div>
+
+                        {/* Configuration Modal */}
+                        {showConfig && (
+                            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2">
+                                <div className="glass-effect rounded-2xl p-4 w-full max-w-md h-[90vh] flex flex-col">
+                                    <div className="flex justify-between items-center mb-3 flex-shrink-0">
+                                        <h3 className="text-lg font-semibold text-white">
+                                            <i className="fas fa-cog mr-2"></i>
+                                            API Configuration
+                                        </h3>
+                                        <button
+                                            onClick={() => setShowConfig(false)}
+                                            className="text-white hover:text-red-300 transition-colors text-xl p-1"
+                                        >
+                                            <i className="fas fa-times"></i>
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="flex-1 overflow-y-auto pr-2">
+                                        <form onSubmit={updateConfig} className="space-y-3">
+                                        <div>
+                                            <label className="block text-white text-sm font-medium mb-2">
+                                                Target Hostname
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={config.hostname}
+                                                onChange={(e) => setConfig({...config, hostname: e.target.value})}
+                                                placeholder="e.g., api.example.com:8080"
+                                                className="w-full px-3 py-2 bg-white/90 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+                                                required
+                                            />
+                                            <p className="text-xs text-blue-200 mt-1">
+                                                Include port if needed (e.g., api.example.com:8080). Uses HTTPS by default.
+                                            </p>
+                                        </div>
+                                        
+                                        <div>
+                                            <label className="block text-white text-sm font-medium mb-2">
+                                                API Token
+                                            </label>
+                                            <input
+                                                type="password"
+                                                value={config.api_token}
+                                                onChange={(e) => setConfig({...config, api_token: e.target.value})}
+                                                placeholder="Enter your API token"
+                                                className="w-full px-3 py-2 bg-white/90 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+                                            />
+                                            <p className="text-xs text-blue-200 mt-1">
+                                                This will be sent in the X-API-KEY header
+                                            </p>
+                                        </div>
+
+                                        <div className="border-t border-white/20 pt-4">
+                                            <h4 className="text-white font-medium mb-3">
+                                                <i className="fas fa-robot mr-2"></i>
+                                                OpenAI Configuration (Optional)
+                                            </h4>
+                                            
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <label className="block text-white text-sm font-medium mb-2">
+                                                        OpenAI API Key
+                                                    </label>
+                                                    <input
+                                                        type="password"
+                                                        value={config.openai_api_key}
+                                                        onChange={(e) => setConfig({...config, openai_api_key: e.target.value})}
+                                                        placeholder="sk-..."
+                                                        className="w-full px-3 py-2 bg-white/90 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+                                                    />
+                                                    <p className="text-xs text-blue-200 mt-1">
+                                                        Used for complex queries that don't match predefined patterns
+                                                    </p>
+                                                </div>
+                                                
+                                                <div>
+                                                    <label className="block text-white text-sm font-medium mb-2">
+                                                        OpenAI Model
+                                                    </label>
+                                                    <select
+                                                        value={config.openai_model}
+                                                        onChange={(e) => setConfig({...config, openai_model: e.target.value})}
+                                                        className="w-full px-3 py-2 bg-white/90 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+                                                    >
+                                                        <option value="gpt-5-mini">GPT-5 Mini</option>
+                                                        <option value="gpt-4o">GPT-4o</option>
+                                                        <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                                        <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                                                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                                    </select>
+                                                    <p className="text-xs text-blue-200 mt-1">
+                                                        Choose the OpenAI model for query processing
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex space-x-3 pt-3 flex-shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowConfig(false)}
+                                                className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors text-sm"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                type="submit"
+                                                disabled={configLoading}
+                                                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                                            >
+                                                {configLoading ? (
+                                                    <i className="fas fa-spinner fa-spin mr-2"></i>
+                                                ) : (
+                                                    <i className="fas fa-save mr-2"></i>
+                                                )}
+                                                Save
+                                            </button>
+                                        </div>
+                                    </form>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            {/* Query Section */}
+                            <div className="lg:col-span-2">
+                                <div className="glass-effect rounded-2xl p-6 mb-6">
+                                    <h2 className="text-2xl font-semibold text-white mb-4">
+                                        <i className="fas fa-comments mr-2"></i>
+                                        Ask a Question
+                                    </h2>
+                                    
+                                    <form id="query-form" onSubmit={handleSubmit} className="mb-6">
+                                        <div className="relative">
+                                            <input
+                                                type="text"
+                                                value={query}
+                                                onChange={(e) => setQuery(e.target.value)}
+                                                placeholder="e.g., Show me the most risky users..."
+                                                className="query-input w-full px-4 py-3 pr-12 bg-white/90 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+                                                disabled={loading}
+                                            />
+                                            <button
+                                                type="submit"
+                                                disabled={loading || !query.trim()}
+                                                className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                {loading ? (
+                                                    <i className="fas fa-spinner fa-spin"></i>
+                                                ) : (
+                                                    <i className="fas fa-search"></i>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </form>
+
+                                    {/* Suggestions */}
+                                    {suggestions.length > 0 && (
+                                        <div>
+                                            <h3 className="text-lg font-medium text-white mb-3">
+                                                <i className="fas fa-lightbulb mr-2"></i>
+                                                Example Queries
+                                            </h3>
+                                            <div className="grid grid-cols-1 gap-2">
+                                                {suggestions.map((suggestion, index) => (
+                                                    <button
+                                                        key={index}
+                                                        onClick={() => handleSuggestionClick(suggestion)}
+                                                        className="text-left p-3 bg-white/10 hover:bg-white/20 rounded-lg text-white text-sm transition-colors border border-white/20"
+                                                        disabled={loading}
+                                                    >
+                                                        <i className="fas fa-arrow-right mr-2 text-blue-300"></i>
+                                                        {suggestion}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Results */}
+                                {error && (
+                                    <div className="glass-effect rounded-2xl p-6 mb-6 border border-red-400">
+                                        <div className="flex items-center text-red-200">
+                                            <i className="fas fa-exclamation-triangle mr-3"></i>
+                                            <h3 className="text-lg font-medium">Error</h3>
+                                        </div>
+                                        <p className="text-red-100 mt-2">{error}</p>
+                                    </div>
+                                )}
+
+                                {result && (
+                                    <div className="glass-effect rounded-2xl p-6">
+                                        <h3 className="text-2xl font-semibold text-white mb-4">
+                                            <i className="fas fa-code mr-2"></i>
+                                            Generated API Request
+                                        </h3>
+                                        
+                                        {result.error ? (
+                                            <div className="text-red-200">
+                                                <p className="mb-4">{result.error}</p>
+                                                {result.suggestions && (
+                                                    <div>
+                                                        <p className="text-white font-medium mb-2">Try these examples:</p>
+                                                        <ul className="list-disc list-inside text-blue-200">
+                                                            {result.suggestions.map((suggestion, index) => (
+                                                                <li key={index} className="mb-1">{suggestion}</li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-6">
+                                                {/* Query Summary */}
+                                                <div className="bg-white/10 rounded-lg p-4">
+                                                    <h4 className="text-white font-medium mb-2">
+                                                        <i className="fas fa-quote-left mr-2"></i>
+                                                        Your Query
+                                                    </h4>
+                                                    <p className="text-blue-100">{result.natural_language_query}</p>
+                                                    
+                                                    {/* Processing Method Indicator */}
+                                                    <div className="mt-2 flex items-center space-x-2">
+                                                        <span className="text-xs text-blue-200">Processing:</span>
+                                                        {result.processing_method === 'rule_based' ? (
+                                                            <span className="px-2 py-1 bg-green-600 text-white text-xs rounded">
+                                                                <i className="fas fa-cogs mr-1"></i>
+                                                                Rule-based
+                                                            </span>
+                                                        ) : result.processing_method === 'openai' ? (
+                                                            <span className="px-2 py-1 bg-purple-600 text-white text-xs rounded">
+                                                                <i className="fas fa-robot mr-1"></i>
+                                                                AI-powered
+                                                                {result.confidence && (
+                                                                    <span className="ml-1">({Math.round(result.confidence * 100)}%)</span>
+                                                                )}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="px-2 py-1 bg-red-600 text-white text-xs rounded">
+                                                                <i className="fas fa-exclamation-triangle mr-1"></i>
+                                                                Failed
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* API Endpoint */}
+                                                <div className="bg-white/10 rounded-lg p-4">
+                                                    <h4 className="text-white font-medium mb-2">
+                                                        <i className="fas fa-route mr-2"></i>
+                                                        API Endpoint
+                                                    </h4>
+                                                    <div className="api-endpoint text-green-300 bg-black/30 p-3 rounded border">
+                                                        <span className="text-yellow-400">{result.api_request.method}</span> {result.api_request.url}
+                                                    </div>
+                                                </div>
+
+                                                {/* Extracted Parameters */}
+                                                {Object.keys(result.extracted_parameters).length > 0 && (
+                                                    <div className="bg-white/10 rounded-lg p-4">
+                                                        <h4 className="text-white font-medium mb-2">
+                                                            <i className="fas fa-cogs mr-2"></i>
+                                                            Extracted Parameters
+                                                        </h4>
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            {Object.entries(result.extracted_parameters).map(([key, value]) => (
+                                                                <div key={key} className="bg-black/20 p-2 rounded">
+                                                                    <span className="text-blue-300 font-mono">{key}:</span>
+                                                                    <span className="text-white ml-2">{value || 'null'}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                {/* Full API Request */}
+                                                <div className="bg-white/10 rounded-lg p-4">
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <h4 className="text-white font-medium">
+                                                            <i className="fas fa-code mr-2"></i>
+                                                            Complete API Request
+                                                        </h4>
+                                                        <div className="flex space-x-2">
+                                                            <button
+                                                                onClick={() => sendApiRequest(result.api_request)}
+                                                                className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition-colors"
+                                                            >
+                                                                <i className="fas fa-paper-plane mr-1"></i>
+                                                                Send Request
+                                                            </button>
+                                                            <button
+                                                                onClick={() => copyToClipboard(JSON.stringify(formatApiRequest(result.api_request), null, 2))}
+                                                                className="text-blue-300 hover:text-blue-200 transition-colors"
+                                                            >
+                                                                <i className="fas fa-copy"></i>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="response-section bg-black/30 p-4 rounded border overflow-x-auto">
+                                                        <pre className="text-green-300 text-sm">
+                                                            {JSON.stringify(formatApiRequest(result.api_request), null, 2)}
+                                                        </pre>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* API Response Display */}
+                            {apiResponse && (
+                                <div className="glass-effect rounded-2xl p-6 mb-6">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <h3 className="text-xl font-semibold text-white">
+                                            <i className="fas fa-server mr-2"></i>
+                                            API Response
+                                            {apiResponse.error ? (
+                                                <span className="ml-2 text-red-300 text-sm">❌ Failed</span>
+                                            ) : (
+                                                <span className="ml-2 text-green-300 text-sm">✅ Success</span>
+                                            )}
+                                        </h3>
+                                        <div className="flex space-x-2">
+                                            {aiExplanation && (
+                                                <button
+                                                    onClick={() => showAiExplanationModal({
+                                                        status: apiResponse.status,
+                                                        statusText: apiResponse.statusText,
+                                                        data: apiResponse.data,
+                                                        aiExplanation: aiExplanation,
+                                                        url: apiResponse.url,
+                                                        method: apiResponse.method
+                                                    })}
+                                                    className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors"
+                                                >
+                                                    <i className="fas fa-robot mr-1"></i>
+                                                    View AI Analysis
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => setApiResponse(null)}
+                                                className="text-gray-400 hover:text-white transition-colors"
+                                            >
+                                                <i className="fas fa-times"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        {/* Response Status */}
+                                        <div className="bg-white/10 rounded-lg p-4">
+                                            <h4 className="text-white font-medium mb-2">Response Status</h4>
+                                            <div className="flex items-center space-x-4">
+                                                <span className={`px-3 py-1 rounded text-sm ${apiResponse.status < 400 ? 'bg-green-600' : 'bg-red-600'} text-white`}>
+                                                    {apiResponse.status} {apiResponse.statusText}
+                                                </span>
+                                                <span className="text-blue-200 text-sm">
+                                                    <i className="fas fa-link mr-1"></i>
+                                                    {apiResponse.url}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Response Data */}
+                                        <div className="bg-white/10 rounded-lg p-4">
+                                            <h4 className="text-white font-medium mb-2">Response Data</h4>
+                                            <pre className="text-green-300 text-sm bg-black/30 p-3 rounded overflow-x-auto max-h-96">
+                                                {JSON.stringify(apiResponse.data, null, 2)}
+                                            </pre>
+                                        </div>
+
+                                        {/* AI Status */}
+                                        {aiExplanation ? (
+                                            <div className="bg-blue-500/20 rounded-lg p-4 border border-blue-400/30">
+                                                <h4 className="text-blue-200 font-medium mb-2">
+                                                    <i className="fas fa-robot mr-2"></i>
+                                                    AI Analysis Available
+                                                </h4>
+                                                <p className="text-blue-100 text-sm">
+                                                    Click "View AI Analysis" to see the intelligent security analysis of this response.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="bg-yellow-500/20 rounded-lg p-4 border border-yellow-400/30">
+                                                <h4 className="text-yellow-200 font-medium mb-2">
+                                                    <i className="fas fa-exclamation-triangle mr-2"></i>
+                                                    AI Analysis Not Available
+                                                </h4>
+                                                <p className="text-yellow-100 text-sm mb-2">
+                                                    AI analysis failed or was not requested. Check the console for details.
+                                                </p>
+                                                <button
+                                                    onClick={async () => {
+                                                        try {
+                                                            console.log('🧪 Testing AI configuration...');
+                                                            const response = await fetch('/api/test-ai');
+                                                            const result = await response.json();
+                                                            console.log('🧪 AI Test Result:', result);
+                                                            
+                                                            if (result.success) {
+                                                                alert('✅ AI Test Successful!\n\n' + JSON.stringify(result, null, 2));
+                                                            } else {
+                                                                alert('❌ AI Test Failed!\n\n' + JSON.stringify(result, null, 2));
+                                                            }
+                                                        } catch (error) {
+                                                            console.error('🧪 AI Test Error:', error);
+                                                            alert('❌ AI Test Error: ' + error.message);
+                                                        }
+                                                    }}
+                                                    className="bg-yellow-600 text-white px-3 py-1 rounded text-sm hover:bg-yellow-700 transition-colors mr-2"
+                                                >
+                                                    <i className="fas fa-vial mr-1"></i>
+                                                    Test AI Config
+                                                </button>
+                                                 <button
+                                                     onClick={() => {
+                                                         console.log('🎭 Testing AI modal display...');
+                                                         const testData = {
+                                                             status: 200,
+                                                             statusText: 'OK',
+                                                             data: { test: 'This is test data' },
+                                                             aiExplanation: 'This is a test AI explanation to verify the modal display is working correctly.',
+                                                             url: 'http://test.com/api/test',
+                                                             method: 'proxy'
+                                                         };
+                                                         console.log('Test modal data:', testData);
+                                                         showAiExplanationModal(testData);
+                                                     }}
+                                                     className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors mr-2"
+                                                 >
+                                                     <i className="fas fa-eye mr-1"></i>
+                                                     Test Modal
+                                                 </button>
+                                                 <button
+                                                     onClick={async () => {
+                                                         if (!apiResponse) {
+                                                             alert('No API response available. Please send an API request first.');
+                                                             return;
+                                                         }
+                                                         
+                                                         console.log('🤖 Manually triggering AI processing...');
+                                                         console.log('API Response data:', apiResponse.data);
+                                                         
+                                                        try {
+                                                            // Try to detect language from the original query
+                                                            const detectedLanguage = result?.detected_language || 'en';
+                                                            const aiExplanation = await processResponseWithAI(apiResponse.data, {
+                                                                method: 'GET',
+                                                                url: '/threats/org/summary',
+                                                                query_params: {}
+                                                            }, detectedLanguage);
+                                                             
+                                                             console.log('✅ Manual AI Processing Successful');
+                                                             console.log('AI Explanation:', aiExplanation);
+                                                             
+                                                             setAiExplanation(aiExplanation);
+                                                             
+                                                             // Show AI explanation modal
+                                                             showAiExplanationModal({
+                                                                 status: apiResponse.status,
+                                                                 statusText: apiResponse.statusText,
+                                                                 data: apiResponse.data,
+                                                                 aiExplanation: aiExplanation,
+                                                                 url: apiResponse.url,
+                                                                 method: apiResponse.method
+                                                             });
+                                                             
+                                                         } catch (error) {
+                                                             console.error('❌ Manual AI Processing Failed:', error);
+                                                             alert('AI processing failed: ' + error.message);
+                                                         }
+                                                     }}
+                                                     className="bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700 transition-colors"
+                                                 >
+                                                     <i className="fas fa-magic mr-1"></i>
+                                                     Force AI Analysis
+                                                 </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Sidebar */}
+                            <div className="lg:col-span-1">
+                                {/* Available Endpoints */}
+                                <div className="glass-effect rounded-2xl p-6">
+                                    <h3 className="text-xl font-semibold text-white mb-4">
+                                        <i className="fas fa-list mr-2"></i>
+                                        Available Endpoints
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {endpoints.map((endpoint, index) => (
+                                            <div key={index} className="bg-white/10 rounded-lg p-3">
+                                                <div className="flex items-center mb-2">
+                                                    <span className={`px-2 py-1 rounded text-xs font-mono ${
+                                                        endpoint.method === 'GET' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'
+                                                    }`}>
+                                                        {endpoint.method}
+                                                    </span>
+                                                </div>
+                                                <div className="text-blue-300 font-mono text-sm mb-1">
+                                                    {endpoint.path}
+                                                </div>
+                                                <div className="text-white text-sm">
+                                                    {endpoint.summary}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* API Info */}
+                                <div className="glass-effect rounded-2xl p-6 mt-6">
+                                    <h3 className="text-xl font-semibold text-white mb-4">
+                                        <i className="fas fa-info-circle mr-2"></i>
+                                        About This API
+                                    </h3>
+                                    <div className="text-blue-100 text-sm space-y-2">
+                                        <p><strong>Title:</strong> OpenText Core Threat Detection and Response</p>
+                                        <p><strong>Version:</strong> 1.7.25</p>
+                                        <p><strong>Purpose:</strong> Analyze security threats, risky users, devices, and processes</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Render the app with error boundary
+        console.log('Starting React app render...');
+        try {
+            ReactDOM.render(
+                <ErrorBoundary>
+                    <App />
+                </ErrorBoundary>, 
+                document.getElementById('root')
+            );
+            console.log('React app rendered successfully');
+        } catch (error) {
+            console.error('Error rendering React app:', error);
+            document.getElementById('root').innerHTML = `
+                <div class="min-h-screen flex items-center justify-center bg-red-500 text-white">
+                    <div class="text-center p-8">
+                        <h1 class="text-2xl mb-4">React Render Error</h1>
+                        <p class="mb-4">Error: ${error.message}</p>
+                        <button onclick="window.location.reload()" class="bg-white text-red-500 px-4 py-2 rounded hover:bg-gray-100">
+                            Reload Page
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

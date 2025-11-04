@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TDR Agent - Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            padding: 30px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            border-left: 4px solid #28a745;
+        }
+        .error {
+            border-left-color: #dc3545;
+            background: rgba(220, 53, 69, 0.2);
+        }
+        .success {
+            border-left-color: #28a745;
+            background: rgba(40, 167, 69, 0.2);
+        }
+        pre {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 3px solid white;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 TDR Agent - Connection Test</h1>
+        
+        <div class="test-section">
+            <h3>1. Configuration Test</h3>
+            <button onclick="testConfiguration()">Load Configuration</button>
+            <div id="config-result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>2. Basic Connectivity Test</h3>
+            <button onclick="testBasicConnectivity()">Test Basic Connection</button>
+            <div id="basic-result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>3. API Endpoint Test</h3>
+            <button onclick="testApiEndpoint()">Test API Endpoint</button>
+            <div id="api-result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>4. CORS Test</h3>
+            <button onclick="testCors()">Test CORS</button>
+            <div id="cors-result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>5. Manual URL Test</h3>
+            <p>Try accessing these URLs directly in your browser:</p>
+            <div id="manual-urls"></div>
+        </div>
+    </div>
+
+    <script>
+        let config = null;
+
+        async function testConfiguration() {
+            const resultDiv = document.getElementById('config-result');
+            resultDiv.innerHTML = '<div class="spinner"></div>Loading configuration...';
+            
+            try {
+                const response = await fetch('/api/config');
+                config = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <div class="result success">
+                        <h4>✅ Configuration Loaded</h4>
+                        <pre>${JSON.stringify(config, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h4>❌ Configuration Error</h4>
+                        <p>Error: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function testBasicConnectivity() {
+            const resultDiv = document.getElementById('basic-result');
+            resultDiv.innerHTML = '<div class="spinner"></div>Testing basic connectivity...';
+            
+            try {
+                const response = await fetch('/api/suggestions');
+                const data = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <div class="result success">
+                        <h4>✅ Basic Connectivity OK</h4>
+                        <p>Flask server is responding correctly.</p>
+                        <p>Received ${data.suggestions.length} suggestions.</p>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h4>❌ Basic Connectivity Failed</h4>
+                        <p>Error: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function testApiEndpoint() {
+            const resultDiv = document.getElementById('api-result');
+            
+            if (!config || !config.api_base_url) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h4>❌ No Configuration</h4>
+                        <p>Please load configuration first.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div class="spinner"></div>Testing API endpoint...';
+            
+            const testUrl = `/api/proxy/threats/users`;
+            
+            try {
+                const response = await fetch(testUrl, {
+                    method: 'GET',
+                    headers: {
+                        'X-API-KEY': config.api_token,
+                        'Accept': 'application/json'
+                    },
+                    mode: 'cors'
+                });
+                
+                const responseText = await response.text();
+                let responseData;
+                try {
+                    responseData = JSON.parse(responseText);
+                } catch {
+                    responseData = responseText;
+                }
+                
+                resultDiv.innerHTML = `
+                    <div class="result success">
+                        <h4>✅ API Endpoint Accessible</h4>
+                        <p><strong>Status:</strong> ${response.status} ${response.statusText}</p>
+                        <p><strong>URL:</strong> ${testUrl}</p>
+                        <details>
+                            <summary>Response Data</summary>
+                            <pre>${JSON.stringify(responseData, null, 2)}</pre>
+                        </details>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h4>❌ API Endpoint Failed</h4>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                        <p><strong>URL:</strong> ${testUrl}</p>
+                        <p><strong>Possible causes:</strong></p>
+                        <ul>
+                            <li>API server is not running</li>
+                            <li>Network connectivity issues</li>
+                            <li>CORS policy blocking the request</li>
+                            <li>SSL certificate issues</li>
+                            <li>Firewall blocking the connection</li>
+                        </ul>
+                    </div>
+                `;
+            }
+        }
+
+        async function testCors() {
+            const resultDiv = document.getElementById('cors-result');
+            
+            if (!config || !config.api_base_url) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h4>❌ No Configuration</h4>
+                        <p>Please load configuration first.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            resultDiv.innerHTML = '<div class="spinner"></div>Testing CORS...';
+            
+            const testUrl = `/api/proxy/threats/users`;
+            
+            try {
+                // Test with different CORS modes
+                const corsTests = [
+                    { mode: 'cors', name: 'CORS Mode' },
+                    { mode: 'no-cors', name: 'No-CORS Mode' },
+                    { mode: 'same-origin', name: 'Same-Origin Mode' }
+                ];
+                
+                let results = [];
+                
+                for (const test of corsTests) {
+                    try {
+                        const response = await fetch(testUrl, {
+                            method: 'HEAD',
+                            mode: test.mode,
+                            headers: {
+                                'X-API-KEY': config.api_token
+                            }
+                        });
+                        results.push(`✅ ${test.name}: OK (${response.status})`);
+                    } catch (error) {
+                        results.push(`❌ ${test.name}: ${error.message}`);
+                    }
+                }
+                
+                resultDiv.innerHTML = `
+                    <div class="result">
+                        <h4>CORS Test Results</h4>
+                        <ul>
+                            ${results.map(result => `<li>${result}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h4>❌ CORS Test Failed</h4>
+                        <p>Error: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function updateManualUrls() {
+            const urlsDiv = document.getElementById('manual-urls');
+            
+            if (!config || !config.api_base_url) {
+                urlsDiv.innerHTML = '<p>Load configuration first to see test URLs.</p>';
+                return;
+            }
+            
+            const baseUrl = config.api_base_url;
+            const testUrls = [
+                `/api/proxy/threats/users`,
+                `/api/proxy/threats/devices`,
+                `/api/proxy/threats/org/summary`
+            ];
+            
+            urlsDiv.innerHTML = `
+                <ul>
+                    ${testUrls.map(url => `
+                        <li>
+                            <a href="${url}" target="_blank" style="color: #ffc107;">${url}</a>
+                            <button onclick="testUrl('${url}')" style="margin-left: 10px;">Test</button>
+                        </li>
+                    `).join('')}
+                </ul>
+                <p><strong>Instructions:</strong></p>
+                <ol>
+                    <li>Click the links above to open them in a new tab</li>
+                    <li>If you see a login page or API response, the server is accessible</li>
+                    <li>If you see an error, there may be network or server issues</li>
+                </ol>
+            `;
+        }
+
+        window.testUrl = async function(url) {
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                alert(`URL is accessible! Status: ${response.status}`);
+            } catch (error) {
+                alert(`URL test failed: ${error.message}`);
+            }
+        };
+
+        // Load configuration on page load
+        window.onload = async function() {
+            await testConfiguration();
+            updateManualUrls();
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TDR Agent - Simple Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            padding: 30px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            border-left: 4px solid #28a745;
+        }
+        .error {
+            border-left-color: #dc3545;
+            background: rgba(220, 53, 69, 0.2);
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+        }
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 3px solid white;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        pre {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ TDR Agent - Simple Test</h1>
+        
+        <div class="form-group">
+            <label for="query">Ask a question about threats, users, or devices:</label>
+            <input type="text" id="query" placeholder="e.g., Show me the most risky users..." />
+        </div>
+        
+        <button onclick="submitQuery()" id="submitBtn">Submit Query</button>
+        
+        <div id="result"></div>
+        
+        <div style="margin-top: 30px; text-align: center;">
+            <h3>Test Links:</h3>
+            <a href="/debug" style="color: #ffc107; margin: 0 10px;">Debug Page</a>
+            <a href="/debug-ui" style="color: #ffc107; margin: 0 10px;">Debug UI</a>
+            <a href="/connection-test" style="color: #ffc107; margin: 0 10px;">Connection Test</a>
+            <a href="/api/suggestions" style="color: #ffc107; margin: 0 10px;">API Suggestions</a>
+        </div>
+    </div>
+
+    <script>
+        async function submitQuery() {
+            const query = document.getElementById('query').value.trim();
+            const submitBtn = document.getElementById('submitBtn');
+            const resultDiv = document.getElementById('result');
+            
+            if (!query) {
+                showResult('Please enter a query', 'error');
+                return;
+            }
+            
+            // Show loading
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Processing...';
+            resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Processing your query...</div>';
+            
+            try {
+                const response = await fetch('/api/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query: query })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    if (data.error) {
+                        showResult(`Error: ${data.error}`, 'error');
+                    } else {
+                        showResult(formatResult(data), 'success');
+                    }
+                } else {
+                    showResult(`HTTP Error ${response.status}: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                showResult(`Network Error: ${error.message}`, 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit Query';
+            }
+        }
+        
+        function showResult(content, type = 'success') {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `<div class="result ${type}">${content}</div>`;
+        }
+        
+        function formatResult(data) {
+            let html = `
+                <h3>✅ Query Processed Successfully</h3>
+                <p><strong>Your Query:</strong> ${data.natural_language_query}</p>
+                <p><strong>Processing Method:</strong> ${data.processing_method || 'unknown'}</p>
+                <p><strong>Endpoint:</strong> ${data.endpoint || 'N/A'}</p>
+                <p><strong>Summary:</strong> ${data.summary || 'N/A'}</p>
+            `;
+            
+            if (data.extracted_parameters && Object.keys(data.extracted_parameters).length > 0) {
+                html += `<p><strong>Extracted Parameters:</strong></p><pre>${JSON.stringify(data.extracted_parameters, null, 2)}</pre>`;
+            }
+            
+            if (data.api_request) {
+                html += `<p><strong>Generated API Request:</strong></p><pre>${JSON.stringify(data.api_request, null, 2)}</pre>`;
+            }
+            
+            return html;
+        }
+        
+        // Allow Enter key to submit
+        document.getElementById('query').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                submitQuery();
+            }
+        });
+        
+        // Test API connection on page load
+        window.onload = async function() {
+            try {
+                const response = await fetch('/api/suggestions');
+                if (response.ok) {
+                    console.log('✅ API connection successful');
+                } else {
+                    console.log('❌ API connection failed:', response.status);
+                }
+            } catch (error) {
+                console.log('❌ API connection error:', error.message);
+            }
+        };
+    </script>
+</body>
+</html>
