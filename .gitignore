@@ -7,13 +7,31 @@ __pycache__/
 env/
 venv/
 ENV/
+env.bak/
+venv.bak/
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Configuration files (包含敏感信息)
+# Configuration files (包含敏感信息 - 不要提交到版本控制)
 tdr_config.json
+tdr_config*.json
 .env
+.env.local
+.env.*.local
 
 # IDE
 .vscode/
@@ -21,16 +39,53 @@ tdr_config.json
 *.swp
 *.swo
 *~
+.project
+.pydevproject
+.settings/
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+Desktop.ini
 
 # Logs
 *.log
+logs/
+*.log.*
 
 # Temporary files
 *.tmp
 *.bak
+*.cache
+*.pid
+*.seed
+*.pid.lock
 * - Copy.json
 1.12.0
+
+# Flask
+instance/
+.webassets-cache
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json

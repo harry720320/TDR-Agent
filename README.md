@@ -67,6 +67,12 @@ The AI analysis uses your configured OpenAI API key and model. Make sure to set 
 - GPT-4 Turbo - High-performance model
 - GPT-3.5 Turbo - Legacy model
 
+**Configuration Storage:**
+- All configuration is stored in `tdr_config.json` file
+- This file is automatically created when you save settings through the web interface
+- Configuration is loaded automatically on application startup
+- The file contains sensitive information (API tokens) and should not be committed to version control
+
 ## Installation
 
 1. **Clone or download the project files**
@@ -78,28 +84,33 @@ The AI analysis uses your configured OpenAI API key and model. Make sure to set 
 
 3. **Configure the API settings** (choose one method):
 
-   **Method 1: Environment Variables**
-   ```bash
-   # Set environment variables
-   export TDR_HOSTNAME="api.example.com:8080"
-   export TDR_API_TOKEN="your_api_token_here"
-   export OPENAI_API_KEY="sk-your_openai_key_here"  # Optional
-   export OPENAI_MODEL="gpt-3.5-turbo"  # Optional
-   ```
-   
-   **Note**: The application uses HTTPS by default. If you need HTTP, specify the full URL (e.g., `http://api.example.com:8080`)
-
-   **Method 2: Web Interface**
+   **Method 1: Web Interface** (Recommended)
    - Start the application first
    - Click the gear icon (⚙️) in the top-right corner
    - Enter your API hostname, token, and OpenAI settings
+   - Click Save (settings are automatically saved to `tdr_config.json`)
+   
+   **Note**: The application uses HTTPS by default. If you need HTTP, specify the full URL (e.g., `http://api.example.com:8080`)
 
-   **Method 3: Edit config.py directly**
+   **Method 2: Edit tdr_config.json directly**
+   - Create or edit `tdr_config.json` file in the project root:
+   ```json
+   {
+     "hostname": "api.example.com:8080",
+     "api_token": "your_api_token_here",
+     "api_base_url": "https://api.example.com:8080",
+     "openai_api_key": "sk-your_openai_key_here",
+     "openai_model": "gpt-5-mini"
+   }
+   ```
+   - The configuration file will be automatically loaded on application startup
+
+   **Method 3: Edit config.py directly** (For development only)
    ```python
    DEFAULT_HOSTNAME = "your-api-server.com:8080"
    DEFAULT_API_TOKEN = "your_api_token_here"
    DEFAULT_OPENAI_API_KEY = "sk-your_openai_key_here"  # Optional
-   DEFAULT_OPENAI_MODEL = "gpt-3.5-turbo"  # Optional
+   DEFAULT_OPENAI_MODEL = "gpt-5-mini"  # Optional
    ```
 
 4. **Run the application**:
@@ -205,19 +216,30 @@ The application requires configuration of the target API hostname and authentica
 
 ### Configuration Methods
 
-1. **Environment Variables** (Recommended for production):
-   ```bash
-   export TDR_HOSTNAME="api.example.com:8080"
-   export TDR_API_TOKEN="your_api_token_here"
-   ```
-
-2. **Web Interface** (Easy setup):
+1. **Web Interface** (Recommended - Easy setup):
    - Click the gear icon (⚙️) in the application header
    - Enter your hostname, token, and OpenAI settings
    - Click Save (settings are automatically saved to `tdr_config.json`)
+   - Configuration is automatically loaded on next startup
 
-3. **Direct Configuration** (For development):
+2. **tdr_config.json File** (For production or direct configuration):
+   - Create or edit `tdr_config.json` file in the project root directory
+   - Add your configuration in JSON format:
+   ```json
+   {
+     "hostname": "api.example.com:8080",
+     "api_token": "your_api_token_here",
+     "api_base_url": "https://api.example.com:8080",
+     "openai_api_key": "sk-your_openai_key_here",
+     "openai_model": "gpt-5-mini"
+   }
+   ```
+   - The application will automatically load this file on startup
+   - **Note**: `tdr_config.json` contains sensitive information and should not be committed to version control
+
+3. **Direct Configuration** (For development only):
    - Edit `config.py` and update the `DEFAULT_HOSTNAME`, `DEFAULT_API_TOKEN`, and OpenAI settings
+   - This method is less persistent and not recommended for production use
 
 ### How the Hybrid System Works
 
@@ -249,14 +271,18 @@ TDR Agent/
 ├── config.py             # Configuration management
 ├── openapi.json          # OpenAPI specification
 ├── requirements.txt      # Python dependencies
-├── env.example          # Environment variables example
-├── tdr_config.json     # Saved configuration (auto-generated)
-├── README.md            # This file
+├── tdr_config.json       # Saved configuration (auto-generated, not in git)
+├── README.md             # This file
+├── run.bat               # Windows launcher script
+├── start_windows.bat     # Windows launcher with better error handling
+├── update_openai.bat     # Script to update OpenAI library
 └── templates/
-    ├── index.html       # Main React frontend
-    ├── debug.html       # Debug page
-    ├── simple.html      # Simple test page
-    └── index_debug.html # Debug UI page
+    ├── index.html        # Main React frontend
+    ├── debug.html        # Debug page
+    ├── simple.html       # Simple test page
+    ├── index_debug.html  # Debug UI page
+    ├── connection_test.html  # Connection test page
+    └── proxy_test.html   # Proxy test page
 ```
 
 ## Development
