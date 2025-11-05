@@ -86,9 +86,38 @@
             const [config, setConfig] = useState({ 
                 hostname: '', 
                 api_token: '', 
-                openai_api_key: '', 
-                openai_model: 'gpt-5-mini' 
+                openrouter_api_key: '', 
+                ai_provider: 'deepseek',
+                openrouter_model: 'deepseek/deepseek-chat',
+                openrouter_base_url: 'https://openrouter.ai/api/v1'
             });
+            
+            // Define available models for each provider
+            const modelOptions = {
+                'openai': [
+                    { value: 'openai/gpt-4o', label: 'GPT-4o' },
+                    { value: 'openai/gpt-4o-mini', label: 'GPT-4o Mini' },
+                    { value: 'openai/gpt-4-turbo', label: 'GPT-4 Turbo' },
+                    { value: 'openai/gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+                    { value: 'openai/gpt-4', label: 'GPT-4' }
+                ],
+                'deepseek': [
+                    { value: 'deepseek/deepseek-chat', label: 'DeepSeek Chat' },
+                    { value: 'deepseek/deepseek-coder', label: 'DeepSeek Coder' },
+                    { value: 'deepseek/deepseek-chat:free', label: 'DeepSeek Chat (Free)' },
+                    { value: 'deepseek/deepseek-coder:free', label: 'DeepSeek Coder (Free)' },
+                    { value: 'deepseek/deepseek-chat:32k', label: 'DeepSeek Chat (32K)' }
+                ]
+            };
+            
+            // Get default model for provider
+            const getDefaultModel = (provider) => {
+                if (provider === 'openai') {
+                    return 'openai/gpt-4o-mini';
+                } else {
+                    return 'deepseek/deepseek-chat';
+                }
+            };
             const [showConfig, setShowConfig] = useState(false);
             const [configLoading, setConfigLoading] = useState(false);
             const [apiResponse, setApiResponse] = useState(null);
@@ -123,10 +152,61 @@
                 }
             };
 
+            // Validate and fix model based on provider
+            const validateModelForProvider = (model, provider) => {
+                if (!model || !provider) return getDefaultModel(provider || 'deepseek');
+                
+                // Check if model matches provider
+                if (provider === 'openai') {
+                    // If model doesn't start with 'openai/', it's invalid
+                    if (!model.startsWith('openai/')) {
+                        // Try to fix old format models (e.g., 'gpt-4o-mini' -> 'openai/gpt-4o-mini')
+                        if (model.startsWith('gpt-')) {
+                            return `openai/${model}`;
+                        }
+                        // Default to OpenAI model
+                        return getDefaultModel('openai');
+                    }
+                } else if (provider === 'deepseek') {
+                    // If model doesn't start with 'deepseek/', it's invalid
+                    if (!model.startsWith('deepseek/')) {
+                        // Default to DeepSeek model
+                        return getDefaultModel('deepseek');
+                    }
+                }
+                
+                return model;
+            };
+
             const fetchConfig = async () => {
                 try {
                     const response = await axios.get('/api/config');
-                    setConfig(response.data);
+                    const loadedConfig = response.data;
+                    
+                    // Support backward compatibility: convert old openai_* keys to new openrouter_* keys
+                    if (loadedConfig.openai_api_key && !loadedConfig.openrouter_api_key) {
+                        loadedConfig.openrouter_api_key = loadedConfig.openai_api_key;
+                    }
+                    if (loadedConfig.openai_model && !loadedConfig.openrouter_model) {
+                        loadedConfig.openrouter_model = loadedConfig.openai_model;
+                    }
+                    if (loadedConfig.openai_base_url && !loadedConfig.openrouter_base_url) {
+                        loadedConfig.openrouter_base_url = loadedConfig.openai_base_url;
+                    }
+                    
+                    // Validate and fix model if needed
+                    const provider = loadedConfig.ai_provider || 'deepseek';
+                    const model = validateModelForProvider(loadedConfig.openrouter_model || loadedConfig.openai_model, provider);
+                    
+                    // Update config with validated model
+                    loadedConfig.openrouter_model = model;
+                    
+                    // Remove old keys if they exist
+                    delete loadedConfig.openai_api_key;
+                    delete loadedConfig.openai_model;
+                    delete loadedConfig.openai_base_url;
+                    
+                    setConfig(loadedConfig);
                 } catch (err) {
                     console.error('Error fetching config:', err);
                 }
@@ -137,7 +217,28 @@
                 setConfigLoading(true);
                 
                 try {
-                    const response = await axios.post('/api/config', config);
+                    // Validate model before saving
+                    const provider = config.ai_provider || 'deepseek';
+                    const currentModel = config.openrouter_model || config.openai_model || getDefaultModel(provider);
+                    const validatedModel = validateModelForProvider(currentModel, provider);
+                    
+                    // Prepare config with new parameter names
+                    const configToSave = {
+                        hostname: config.hostname,
+                        api_token: config.api_token,
+                        openrouter_api_key: config.openrouter_api_key || config.openai_api_key || '',
+                        ai_provider: provider,
+                        openrouter_model: validatedModel,
+                        openrouter_base_url: config.openrouter_base_url || config.openai_base_url || 'https://openrouter.ai/api/v1'
+                    };
+                    
+                    // If model was corrected, update the state
+                    if (validatedModel !== currentModel) {
+                        setConfig({...config, openrouter_model: validatedModel});
+                        console.log(`Model corrected to '${validatedModel}' for provider '${provider}'`);
+                    }
+                    
+                    const response = await axios.post('/api/config', configToSave);
                     const message = response.data.message;
                     const savedToFile = response.data.saved_to_file;
                     
@@ -1032,43 +1133,84 @@ Keep the explanation concise but comprehensive.`;
                                         <div className="border-t border-white/20 pt-4">
                                             <h4 className="text-white font-medium mb-3">
                                                 <i className="fas fa-robot mr-2"></i>
-                                                OpenAI Configuration (Optional)
+                                                AI Configuration (via OpenRouter) - Optional
                                             </h4>
                                             
                                             <div className="space-y-3">
                                                 <div>
                                                     <label className="block text-white text-sm font-medium mb-2">
-                                                        OpenAI API Key
+                                                        OpenRouter API Key
                                                     </label>
                                                     <input
                                                         type="password"
-                                                        value={config.openai_api_key}
-                                                        onChange={(e) => setConfig({...config, openai_api_key: e.target.value})}
-                                                        placeholder="sk-..."
+                                                        value={config.openrouter_api_key || config.openai_api_key || ''}
+                                                        onChange={(e) => setConfig({...config, openrouter_api_key: e.target.value})}
+                                                        placeholder="sk-or-..."
                                                         className="w-full px-3 py-2 bg-white/90 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
                                                     />
                                                     <p className="text-xs text-blue-200 mt-1">
-                                                        Used for complex queries that don't match predefined patterns
+                                                        Your OpenRouter API key (starts with sk-or-). Get it from <a href="https://openrouter.ai" target="_blank" className="underline">openrouter.ai</a>. This key works for both OpenAI and DeepSeek models.
                                                     </p>
                                                 </div>
                                                 
                                                 <div>
                                                     <label className="block text-white text-sm font-medium mb-2">
-                                                        OpenAI Model
+                                                        AI Provider (via OpenRouter)
                                                     </label>
                                                     <select
-                                                        value={config.openai_model}
-                                                        onChange={(e) => setConfig({...config, openai_model: e.target.value})}
+                                                        value={config.ai_provider || 'deepseek'}
+                                                        onChange={(e) => {
+                                                            const provider = e.target.value;
+                                                            const defaultModel = getDefaultModel(provider);
+                                                            setConfig({
+                                                                ...config, 
+                                                                ai_provider: provider,
+                                                                openrouter_model: defaultModel
+                                                            });
+                                                        }}
                                                         className="w-full px-3 py-2 bg-white/90 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
                                                     >
-                                                        <option value="gpt-5-mini">GPT-5 Mini</option>
-                                                        <option value="gpt-4o">GPT-4o</option>
-                                                        <option value="gpt-4o-mini">GPT-4o Mini</option>
-                                                        <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                                                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                                        <option value="deepseek">DeepSeek</option>
+                                                        <option value="openai">OpenAI</option>
                                                     </select>
                                                     <p className="text-xs text-blue-200 mt-1">
-                                                        Choose the OpenAI model for query processing
+                                                        Choose AI provider (both accessed via OpenRouter)
+                                                    </p>
+                                                </div>
+                                                
+                                                <div>
+                                                    <label className="block text-white text-sm font-medium mb-2">
+                                                        AI Model
+                                                    </label>
+                                                    <select
+                                                        value={config.openrouter_model || config.openai_model || getDefaultModel(config.ai_provider || 'deepseek')}
+                                                        onChange={(e) => setConfig({...config, openrouter_model: e.target.value})}
+                                                        className="w-full px-3 py-2 bg-white/90 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+                                                    >
+                                                        {(modelOptions[config.ai_provider] || modelOptions.deepseek).map((option) => (
+                                                            <option key={option.value} value={option.value}>
+                                                                {option.label}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <p className="text-xs text-blue-200 mt-1">
+                                                        Choose the {config.ai_provider === 'openai' ? 'OpenAI' : 'DeepSeek'} model via OpenRouter
+                                                    </p>
+                                                </div>
+                                                
+                                                <div>
+                                                    <label className="block text-white text-sm font-medium mb-2">
+                                                        AI API Base URL (OpenRouter)
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={config.openrouter_base_url || config.openai_base_url || 'https://openrouter.ai/api/v1'}
+                                                        onChange={(e) => setConfig({...config, openrouter_base_url: e.target.value})}
+                                                        placeholder="https://openrouter.ai/api/v1"
+                                                        className="w-full px-3 py-2 bg-white/90 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
+                                                    />
+                                                    <p className="text-xs text-blue-200 mt-1">
+                                                        OpenRouter API endpoint (default: https://openrouter.ai/api/v1)
                                                     </p>
                                                 </div>
                                             </div>

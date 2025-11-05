@@ -1,6 +1,12 @@
 # TDR Agent - Natural Language API Query Interface
 
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/yourusername/tdr-agent)
+[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 A web application that converts natural language queries into API requests based on the OpenText Core Threat Detection and Response API specification.
+
+**Version**: 1.0.0
 
 ## Features
 
@@ -58,14 +64,34 @@ Instead of showing raw JSON data, the AI provides explanations like:
 - "**Recommendations**: Immediately investigate the anomalous login attempts from..."
 
 ### Configuration:
-The AI analysis uses your configured OpenAI API key and model. Make sure to set these in the configuration panel for the best experience. The default model is GPT-5 Mini, which provides fast and efficient analysis.
+The AI analysis uses OpenRouter to access both OpenAI and DeepSeek models. You need to configure your OpenRouter API key in the configuration panel. You can choose between OpenAI or DeepSeek providers, both accessed via OpenRouter.
 
-**Supported Models:**
-- GPT-5 Mini (default) - Fast and efficient
+**Supported Providers:**
+- **DeepSeek** (default) - Cost-effective models with free tier options
+- **OpenAI** - Premium models including GPT-4o and GPT-4 Turbo
+
+**Supported Models (via OpenRouter):**
+
+**DeepSeek Models:**
+- DeepSeek Chat (default) - Fast and efficient chat model
+- DeepSeek Coder - Specialized for code generation
+- DeepSeek Chat (Free) - Free tier option
+- DeepSeek Coder (Free) - Free tier for coding
+- DeepSeek Chat (32K) - Extended context window
+
+**OpenAI Models:**
 - GPT-4o - Latest multimodal model
 - GPT-4o Mini - Compact version of GPT-4o
 - GPT-4 Turbo - High-performance model
+- GPT-4 - Standard GPT-4 model
 - GPT-3.5 Turbo - Legacy model
+
+**Getting OpenRouter API Key:**
+1. Visit [OpenRouter.ai](https://openrouter.ai)
+2. Sign up or log in
+3. Go to your API keys page
+4. Create a new API key
+5. Enter it in the configuration panel
 
 **Configuration Storage:**
 - All configuration is stored in `tdr_config.json` file
@@ -87,7 +113,7 @@ The AI analysis uses your configured OpenAI API key and model. Make sure to set 
    **Method 1: Web Interface** (Recommended)
    - Start the application first
    - Click the gear icon (⚙️) in the top-right corner
-   - Enter your API hostname, token, and OpenAI settings
+   - Enter your API hostname, token, and AI settings (OpenRouter API key)
    - Click Save (settings are automatically saved to `tdr_config.json`)
    
    **Note**: The application uses HTTPS by default. If you need HTTP, specify the full URL (e.g., `http://api.example.com:8080`)
@@ -99,18 +125,26 @@ The AI analysis uses your configured OpenAI API key and model. Make sure to set 
      "hostname": "api.example.com:8080",
      "api_token": "your_api_token_here",
      "api_base_url": "https://api.example.com:8080",
-     "openai_api_key": "sk-your_openai_key_here",
-     "openai_model": "gpt-5-mini"
+     "openrouter_api_key": "sk-or-your_openrouter_key_here",
+     "ai_provider": "deepseek",
+     "openrouter_model": "deepseek/deepseek-chat",
+     "openrouter_base_url": "https://openrouter.ai/api/v1"
    }
    ```
+   - Set `ai_provider` to `"openai"` to use OpenAI models, or `"deepseek"` for DeepSeek models
    - The configuration file will be automatically loaded on application startup
+   - **Note**: Get your OpenRouter API key from [OpenRouter.ai](https://openrouter.ai)
 
    **Method 3: Edit config.py directly** (For development only)
    ```python
    DEFAULT_HOSTNAME = "your-api-server.com:8080"
    DEFAULT_API_TOKEN = "your_api_token_here"
-   DEFAULT_OPENAI_API_KEY = "sk-your_openai_key_here"  # Optional
-   DEFAULT_OPENAI_MODEL = "gpt-5-mini"  # Optional
+   DEFAULT_OPENAI_API_KEY = "sk-or-your_openrouter_key_here"  # OpenRouter API key (internal name)
+   DEFAULT_AI_PROVIDER = "deepseek"  # "openai" or "deepseek"
+   DEFAULT_OPENAI_MODEL = "deepseek/deepseek-chat"  # Model name (internal name)
+   DEFAULT_OPENAI_BASE_URL = "https://openrouter.ai/api/v1"  # OpenRouter endpoint (internal name)
+   
+   Note: The configuration file uses openrouter_* parameter names (openrouter_api_key, openrouter_model, openrouter_base_url)
    ```
 
 4. **Run the application**:
@@ -209,8 +243,10 @@ The application requires configuration of the target API hostname and authentica
 
 - **Hostname**: The hostname or IP address of your TDR API server (include port if needed)
 - **API Token**: Authentication token that will be sent in the `X-API-KEY` header
-- **OpenAI API Key** (Optional): For processing complex queries that don't match predefined patterns
-- **OpenAI Model** (Optional): Choose between GPT-3.5 Turbo, GPT-4, or GPT-4 Turbo
+- **OpenRouter API Key** (Required for AI features): Get your API key from [OpenRouter.ai](https://openrouter.ai)
+- **AI Provider** (Optional): Choose "OpenAI" or "DeepSeek" (default: DeepSeek)
+- **AI Model** (Optional): Choose from available models based on selected provider (default: deepseek/deepseek-chat)
+- **AI Base URL** (Optional): OpenRouter API endpoint (default: https://openrouter.ai/api/v1)
 
 **Protocol**: The application uses HTTPS by default for security. If your API server only supports HTTP, specify the full URL including the protocol (e.g., `http://api.example.com:8080`).
 
@@ -218,7 +254,7 @@ The application requires configuration of the target API hostname and authentica
 
 1. **Web Interface** (Recommended - Easy setup):
    - Click the gear icon (⚙️) in the application header
-   - Enter your hostname, token, and OpenAI settings
+   - Enter your hostname, token, and AI settings (OpenRouter API key)
    - Click Save (settings are automatically saved to `tdr_config.json`)
    - Configuration is automatically loaded on next startup
 
@@ -253,10 +289,12 @@ The application uses a two-tier approach for processing natural language queries
 
 2. **AI-powered Processing** (Fallback):
    - Used when rule-based processing fails
-   - Powered by OpenAI's language models
+   - Powered by OpenAI or DeepSeek models via OpenRouter
+   - Users can choose between OpenAI and DeepSeek providers
    - Handles complex, ambiguous, or creative queries
    - Shows purple "AI-powered" indicator with confidence score
-   - Requires OpenAI API key and internet connection
+   - Requires OpenRouter API key and internet connection
+   - Supports multiple models including OpenAI GPT-4o and DeepSeek free tier options
 
 **Examples of queries that trigger AI processing:**
 - "I'm concerned about potential insider threats, can you help me investigate?"
@@ -271,11 +309,14 @@ TDR Agent/
 ├── config.py             # Configuration management
 ├── openapi.json          # OpenAPI specification
 ├── requirements.txt      # Python dependencies
-├── tdr_config.json       # Saved configuration (auto-generated, not in git)
+├── VERSION               # Version number (1.0.0)
+├── CHANGELOG.md          # Version history and changes
 ├── README.md             # This file
+├── .gitignore            # Git ignore rules
 ├── run.bat               # Windows launcher script
 ├── start_windows.bat     # Windows launcher with better error handling
 ├── update_openai.bat     # Script to update OpenAI library
+├── tdr_config.json       # Saved configuration (auto-generated, not in git)
 └── templates/
     ├── index.html        # Main React frontend
     ├── debug.html        # Debug page
@@ -335,10 +376,37 @@ If you encounter `OSError: [WinError 10038] An operation was attempted on someth
    app.run(debug=True, host='127.0.0.1', port=5001)  # Use different port
    ```
 
+## Version Information
+
+**Current Version**: 1.0.0
+
+This is the initial release of TDR Agent. See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
+
+### Release Notes (v1.0.0)
+
+- Initial release with hybrid NLP system
+- Support for OpenAI and DeepSeek models via OpenRouter
+- Multi-language support (7 languages)
+- Web-based configuration interface
+- AI-powered response analysis
+- Comprehensive error handling and troubleshooting tools
+
+## License
+
+This project is open source. Please refer to the LICENSE file for details.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Support
+
+For issues and questions, please open an issue on GitHub.
+
 ### Common Issues
 
 - **Port already in use**: Change port or kill the conflicting process
-- **OpenAI API errors**: Check your API key and internet connection
+- **AI API errors**: Check your OpenRouter API key and internet connection
 - **Module not found**: Run `pip install -r requirements.txt`
 - **Permission denied**: Run as administrator (Windows) or use `sudo` (Unix)
 

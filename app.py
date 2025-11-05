@@ -137,7 +137,7 @@ class NaturalLanguageProcessor:
             }
         
         # If rule-based approach fails, try OpenAI
-        logger.info("Rule-based parsing failed, trying OpenAI...")
+        logger.info("Rule-based parsing failed, trying AI...")
         ai_result = openai_parser.parse_query(query, detected_language)
         
         if ai_result:
@@ -382,13 +382,14 @@ class OpenAIParser:
     def parse_query(self, query: str, detected_language: str = 'en') -> Optional[Dict]:
         """Use OpenAI to parse natural language query"""
         if not Config.OPENAI_API_KEY:
-            logger.warning("OpenAI API key not configured")
+            logger.warning("AI API key not configured")
             return None
             
         try:
-            logger.info(f"OpenAI parsing query: '{query}' (language: {detected_language})")
-            logger.info(f"OpenAI API Key configured: {bool(Config.OPENAI_API_KEY)}")
-            logger.info(f"OpenAI Model: {Config.OPENAI_MODEL}")
+            logger.info(f"AI parsing query: '{query}' (language: {detected_language})")
+            logger.info(f"AI API Key configured: {bool(Config.OPENAI_API_KEY)}")
+            logger.info(f"AI Model: {Config.OPENAI_MODEL}")
+            logger.info(f"AI Base URL: {Config.OPENAI_BASE_URL}")
             
             # Create context for the AI
             endpoints_context = []
@@ -493,7 +494,6 @@ Parameter extraction rules:
 
 Return only valid JSON, no additional text."""
 
-            client = openai.OpenAI(api_key=Config.OPENAI_API_KEY)
             # Generate language-specific system prompt
             if detected_language == 'zh-tw':
                 system_prompt = "您是一個有用的API查詢解析器。總是返回有效的JSON。"
@@ -501,6 +501,19 @@ Return only valid JSON, no additional text."""
                 system_prompt = "你是一个有用的API查询解析器。总是返回有效的JSON。"
             else:
                 system_prompt = "You are a helpful API query parser. Always return valid JSON."
+            
+            # Prepare headers for OpenRouter (optional but recommended)
+            extra_headers = {
+                "HTTP-Referer": "https://github.com/yourusername/tdr-agent",  # Optional: Your app URL
+                "X-Title": "TDR Agent"  # Optional: Your app name
+            }
+            
+            # Create OpenAI client with OpenRouter base URL and headers
+            client = openai.OpenAI(
+                api_key=Config.OPENAI_API_KEY,
+                base_url=Config.OPENAI_BASE_URL,
+                default_headers=extra_headers
+            )
             
             response = client.chat.completions.create(
                 model=Config.OPENAI_MODEL,
@@ -511,25 +524,25 @@ Return only valid JSON, no additional text."""
             )
             
             result_text = response.choices[0].message.content.strip()
-            logger.info(f"OpenAI response: {result_text}")
+            logger.info(f"AI response: {result_text}")
             
             # Parse JSON response
             result = json.loads(result_text)
-            logger.info(f"Parsed OpenAI result: {result}")
+            logger.info(f"Parsed AI result: {result}")
             
             # Validate the result
             if 'endpoint' not in result or 'parameters' not in result:
-                logger.error("Invalid OpenAI response structure")
+                logger.error("Invalid AI response structure")
                 return None
                 
-            logger.info(f"OpenAI parsing successful: {result['endpoint']} with params: {result['parameters']}")
+            logger.info(f"AI parsing successful: {result['endpoint']} with params: {result['parameters']}")
             return result
             
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse OpenAI JSON response: {e}")
+            logger.error(f"Failed to parse AI JSON response: {e}")
             return None
         except Exception as e:
-            logger.error(f"OpenAI API error: {e}")
+            logger.error(f"AI API error: {e}")
             return None
 
 # Initialize the processors
@@ -568,11 +581,18 @@ def load_config_from_file():
 # Load configuration on startup
 saved_config = load_config_from_file()
 if saved_config:
+    # Support both old (openai_*) and new (openrouter_*) parameter names for backward compatibility
+    openrouter_api_key = saved_config.get('openrouter_api_key') or saved_config.get('openai_api_key', Config.OPENAI_API_KEY)
+    openrouter_model = saved_config.get('openrouter_model') or saved_config.get('openai_model', Config.OPENAI_MODEL)
+    openrouter_base_url = saved_config.get('openrouter_base_url') or saved_config.get('openai_base_url', Config.OPENAI_BASE_URL)
+    
     Config.update_config(
         saved_config.get('hostname', Config.HOSTNAME),
         saved_config.get('api_token', Config.API_TOKEN),
-        saved_config.get('openai_api_key', Config.OPENAI_API_KEY),
-        saved_config.get('openai_model', Config.OPENAI_MODEL)
+        openrouter_api_key,
+        saved_config.get('ai_provider', Config.AI_PROVIDER),
+        openrouter_model,
+        openrouter_base_url
     )
 
 @app.route('/')
@@ -659,19 +679,41 @@ def update_config():
         data = request.get_json()
         hostname = data.get('hostname', '').strip()
         api_token = data.get('api_token', '').strip()
-        openai_api_key = data.get('openai_api_key', '').strip()
-        openai_model = data.get('openai_model', 'gpt-3.5-turbo').strip()
+        # Support both old (openai_*) and new (openrouter_*) parameter names for backward compatibility
+        openrouter_api_key = data.get('openrouter_api_key', '').strip() or data.get('openai_api_key', '').strip()
+        ai_provider = data.get('ai_provider', 'deepseek').strip()
+        openrouter_model = data.get('openrouter_model', '').strip() or data.get('openai_model', 'deepseek/deepseek-chat').strip()
+        openrouter_base_url = data.get('openrouter_base_url', '').strip() or data.get('openai_base_url', 'https://openrouter.ai/api/v1').strip()
         
         if not hostname:
             return jsonify({'error': 'Hostname is required'}), 400
         
-        Config.update_config(hostname, api_token, openai_api_key, openai_model)
+        # Validate and fix model format based on provider
+        if ai_provider == 'openai':
+            # Ensure OpenAI models start with 'openai/'
+            if not openrouter_model.startswith('openai/'):
+                # Try to fix old format (e.g., 'gpt-4o-mini' -> 'openai/gpt-4o-mini')
+                if openrouter_model.startswith('gpt-'):
+                    openrouter_model = f'openai/{openrouter_model}'
+                    logger.info(f"Fixed OpenAI model format: {openrouter_model}")
+                else:
+                    # Default to OpenAI model
+                    openrouter_model = 'openai/gpt-4o-mini'
+                    logger.warning(f"Invalid OpenAI model format, using default: {openrouter_model}")
+        elif ai_provider == 'deepseek':
+            # Ensure DeepSeek models start with 'deepseek/'
+            if not openrouter_model.startswith('deepseek/'):
+                # Default to DeepSeek model
+                openrouter_model = 'deepseek/deepseek-chat'
+                logger.warning(f"Invalid DeepSeek model format, using default: {openrouter_model}")
+        
+        Config.update_config(hostname, api_token, openrouter_api_key, ai_provider, openrouter_model, openrouter_base_url)
         
         # Save configuration to file
         config_data = Config.get_config_dict()
         save_success = save_config_to_file(config_data)
         
-        logger.info(f"Configuration updated: hostname={hostname}, api_token={'***' if api_token else 'None'}, openai_key={'***' if openai_api_key else 'None'}")
+        logger.info(f"Configuration updated: hostname={hostname}, api_token={'***' if api_token else 'None'}, openrouter_key={'***' if openrouter_api_key else 'None'}")
         
         return jsonify({
             'message': 'Configuration updated successfully' + (' and saved to file' if save_success else ' (but failed to save to file)'),
@@ -760,8 +802,9 @@ def ai_explain_response():
         
         logger.info(f"Processing AI explanation for {api_request.get('method', 'GET')} {api_request.get('url', 'unknown')}")
         logger.info(f"Detected language: {detected_language}")
-        logger.info(f"OpenAI API Key configured: {bool(Config.OPENAI_API_KEY)}")
-        logger.info(f"OpenAI Model: {Config.OPENAI_MODEL}")
+        logger.info(f"AI API Key configured: {bool(Config.OPENAI_API_KEY)}")
+        logger.info(f"AI Model: {Config.OPENAI_MODEL}")
+        logger.info(f"AI Base URL: {Config.OPENAI_BASE_URL}")
         
         # Modify prompt based on detected language
         language_prompts = {
@@ -776,12 +819,24 @@ def ai_explain_response():
         
         system_prompt = language_prompts.get(detected_language, language_prompts['en'])
         
-        # Use OpenAI to generate explanation
+        # Use OpenAI/OpenRouter to generate explanation
         try:
-            logger.info("Creating OpenAI client...")
-            client = openai.OpenAI(api_key=Config.OPENAI_API_KEY)
+            logger.info("Creating AI client...")
+            logger.info(f"Using base URL: {Config.OPENAI_BASE_URL}")
             
-            logger.info("Sending request to OpenAI...")
+            # Prepare headers for OpenRouter (optional but recommended)
+            extra_headers = {
+                "HTTP-Referer": "https://github.com/yourusername/tdr-agent",  # Optional: Your app URL
+                "X-Title": "TDR Agent"  # Optional: Your app name
+            }
+            
+            client = openai.OpenAI(
+                api_key=Config.OPENAI_API_KEY,
+                base_url=Config.OPENAI_BASE_URL,
+                default_headers=extra_headers
+            )
+            
+            logger.info("Sending request to AI service...")
             logger.info(f"Request prompt preview: {prompt[:200]}...")
             
             response = client.chat.completions.create(
@@ -811,8 +866,8 @@ def ai_explain_response():
             return jsonify(result)
             
         except Exception as ai_error:
-            logger.error(f"OpenAI API error: {str(ai_error)}")
-            logger.error(f"OpenAI error type: {type(ai_error)}")
+            logger.error(f"AI API error: {str(ai_error)}")
+            logger.error(f"AI error type: {type(ai_error)}")
             return jsonify({
                 'error': f'AI processing failed: {str(ai_error)}',
                 'success': False
@@ -832,20 +887,35 @@ def test_ai():
         # Check configuration
         has_api_key = bool(Config.OPENAI_API_KEY)
         model = Config.OPENAI_MODEL
+        base_url = Config.OPENAI_BASE_URL
         
-        logger.info(f"OpenAI API Key configured: {has_api_key}")
-        logger.info(f"OpenAI Model: {model}")
+        logger.info(f"AI API Key configured: {has_api_key}")
+        logger.info(f"AI Model: {model}")
+        logger.info(f"AI Base URL: {base_url}")
         
         if not has_api_key:
             return jsonify({
-                'error': 'OpenAI API key not configured',
+                'error': 'AI API key not configured',
                 'has_api_key': False,
-                'model': model
+                'model': model,
+                'base_url': base_url
             }), 400
         
-        # Test OpenAI connection
+        # Test AI connection (OpenRouter/OpenAI)
         try:
-            client = openai.OpenAI(api_key=Config.OPENAI_API_KEY)
+            logger.info(f"Using base URL: {Config.OPENAI_BASE_URL}")
+            
+            # Prepare headers for OpenRouter (optional but recommended)
+            extra_headers = {
+                "HTTP-Referer": "https://github.com/yourusername/tdr-agent",  # Optional: Your app URL
+                "X-Title": "TDR Agent"  # Optional: Your app name
+            }
+            
+            client = openai.OpenAI(
+                api_key=Config.OPENAI_API_KEY,
+                base_url=Config.OPENAI_BASE_URL,
+                default_headers=extra_headers
+            )
             
             response = client.chat.completions.create(
                 model=Config.OPENAI_MODEL,
@@ -868,16 +938,18 @@ def test_ai():
                 'success': True,
                 'has_api_key': True,
                 'model': model,
+                'base_url': base_url,
                 'test_response': result,
                 'message': 'AI configuration and connectivity test successful'
             })
             
         except Exception as ai_error:
-            logger.error(f"OpenAI test failed: {str(ai_error)}")
+            logger.error(f"AI test failed: {str(ai_error)}")
             return jsonify({
-                'error': f'OpenAI test failed: {str(ai_error)}',
+                'error': f'AI test failed: {str(ai_error)}',
                 'has_api_key': True,
                 'model': model,
+                'base_url': base_url,
                 'success': False
             }), 500
             
